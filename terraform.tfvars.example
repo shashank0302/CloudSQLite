@@ -1,0 +1,10 @@
+# CloudSQLite - Terraform Variables Example
+# Copy this file to terraform.tfvars and customize the values
+
+aws_region = "us-east-1"
+s3_bucket_name = "cloudsqlite-databases"
+dynamodb_table_name = "CloudSQLite-Locks"
+lambda_function_name = "cloudsqlite-lambda"
+api_gateway_name = "cloudsqlite-api"
+environment = "prod"
+project_name = "CloudSQLite"

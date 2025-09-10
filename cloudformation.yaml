@@ -1,0 +1,171 @@
+ AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudSQLite - Lambda-based SQLite database with S3 storage and DynamoDB locking'
+
+Parameters:
+  S3BucketName:
+    Type: String
+    Default: cloudsqlite-databases
+    Description: Name of the S3 bucket to store SQLite databases
+  
+  DynamoDBTableName:
+    Type: String
+    Default: CloudSQLite-Locks
+    Description: Name of the DynamoDB table for locking
+
+Resources:
+  # S3 Bucket for SQLite databases
+  SQLiteDatabaseBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref S3BucketName
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # DynamoDB table for distributed locking
+  LockTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref DynamoDBTableName
+      AttributeDefinitions:
+        - AttributeName: database_name
+          AttributeType: S
+      KeySchema:
+        - AttributeName: database_name
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      TimeToLiveSpecification:
+        AttributeName: lease_timeout
+        Enabled: true
+
+  # IAM Role for Lambda function
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: CloudSQLite-Lambda-Role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: CloudSQLitePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub '${SQLiteDatabaseBucket}/*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !GetAtt LockTable.Arn
+
+  # Lambda function
+  CloudSQLiteLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: cloudsqlite-lambda
+      Runtime: go1.x
+      Handler: lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          package main
+          import "github.com/aws/aws-lambda-go/lambda"
+          func Handler() {}
+          func main() { lambda.Start(Handler) }
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref S3BucketName
+          DYNAMODB_TABLE_NAME: !Ref DynamoDBTableName
+
+  # API Gateway
+  CloudSQLiteAPI:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: cloudsqlite-api
+      Description: CloudSQLite API Gateway
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # API Gateway Resource
+  SQLResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref CloudSQLiteAPI
+      ParentId: !GetAtt CloudSQLiteAPI.RootResourceId
+      PathPart: sql
+
+  # API Gateway Method
+  SQLMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref CloudSQLiteAPI
+      ResourceId: !Ref SQLResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CloudSQLiteLambda.Arn}/invocations'
+
+  # Lambda permission for API Gateway
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CloudSQLiteLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${CloudSQLiteAPI}/*/*'
+
+  # API Gateway Deployment
+  APIDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: SQLMethod
+    Properties:
+      RestApiId: !Ref CloudSQLiteAPI
+      StageName: prod
+
+Outputs:
+  APIGatewayURL:
+    Description: API Gateway URL for CloudSQLite
+    Value: !Sub 'https://${CloudSQLiteAPI}.execute-api.${AWS::Region}.amazonaws.com/prod/sql'
+    Export:
+      Name: CloudSQLite-API-URL
+  
+  S3BucketName:
+    Description: S3 bucket name for SQLite databases
+    Value: !Ref SQLiteDatabaseBucket
+    Export:
+      Name: CloudSQLite-S3-Bucket
+  
+  DynamoDBTableName:
+    Description: DynamoDB table name for locking
+    Value: !Ref LockTable
+    Export:
+      Name: CloudSQLite-DynamoDB-Table
+  
+  LambdaFunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt CloudSQLiteLambda.Arn
+    Export:
+      Name: CloudSQLite-Lambda-ARN
