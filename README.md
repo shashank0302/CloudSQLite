@@ -319,25 +319,7 @@ curl -X POST $API_URL \
 - **Medium usage** (10,000 requests): ~$5-10
 - **Heavy usage** (100,000 requests): ~$20-50
 
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
-
 ## 📄 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## 🙏 Acknowledgments
-
-- AWS Lambda team for serverless computing
-- SQLite team for the amazing database engine
-- Terraform team for infrastructure as code
-- Go team for the excellent programming language
-
----
-
-**⚠️ Important**: This solution is designed for specific use cases. Evaluate your requirements carefully before using in production. Consider alternatives like RDS, Aurora Serverless, or DynamoDB for high-throughput applications.
